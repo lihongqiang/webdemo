@@ -1,0 +1,148 @@
+{% extends "navbar.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h2>Demo</h2>
+    </div>
+</div>
+
+<div class="container">
+<form id="getAnswer" class="form-horizontal" action="/demo" method="POST" >
+
+<div class="control-group">
+  <label class="control-group" for="inputContext">context</label>
+  <div class="controls" >
+  	<textarea rows="5" type="text" id="context" name="context" class="form-control" placeholder="please input the context" aria-describedby="basic-addon1">{{ data.context }}</textarea>
+  </div>
+</div>
+
+<div class="control-group">
+  <label class="control-label" for="inputQuestion">question</label>
+  <div class="controls">
+  	<input type="text" id="question" name="question" class="form-control" placeholder="please input the question for context" aria-describedby="basic-addon1" value="{{ data.question }}">
+  </div>
+</div> 
+
+<div class="control-group">
+  <label class="control-label" for="inputAnsNum">answer number</label>
+  <div class="controls">
+	<select id="num" name="num" >
+	  <option value="1">1</option>
+	  <option value="2">2</option>
+	  <option value="3">3</option>
+	  <option value="4">4</option>
+	  <option value="5">5</option>
+	</select>
+	<!--<input type="text" id="inputAnsNum" class="form-control" placeholder="please input the number of answer" aria-describedby="basic-addon1">-->
+  </div>
+</div>
+
+{% block scripts %}
+{{ super() }}
+<script type="text/javascript">
+    $(document).ready(function() {
+        var value = 0;
+        var time = 200;
+        //进度条复位函数
+        function reset( ) {
+            value = 0
+            $("#prog").removeClass("progress-bar-success").css("width","0%").text("等待启动");
+        }
+        //百分数增加，0-30时为红色，30-60为黄色，60-90为蓝色，>90为绿色
+        function increment( ) {
+            value += 1;
+            $("#prog").css("width",value + "%").text(value + "%");
+            if (value>=0 && value<=30) {
+                $("#prog").addClass("progress-bar-danger");
+            }
+            else if (value>=30 && value <=60) {
+                $("#prog").removeClass("progress-bar-danger");
+                $("#prog").addClass("progress-bar-warning");
+            }
+            else if (value>=60 && value <=90) {
+                $("#prog").removeClass("progress-bar-warning");
+                $("#prog").addClass("progress-bar-info");
+            }
+            else if(value >= 90 && value<99) {
+                $("#prog").removeClass("progress-bar-info");
+                $("#prog").addClass("progress-bar-success");    
+            }
+            else{
+                return;
+            }
+            st = setTimeout(increment,time);
+        }
+        $('#btn_submit').click(function(){
+            $('#getAnswer').submit();
+            reset();
+            increment();
+         }); 
+        {% if data %}
+            $('#num').val({{ data.num }});
+        {% endif %}
+      });
+</script>
+    
+{% endblock %}
+</br>
+<div class="control-group">
+  <div class="controls">
+  <button type="button" class="btn btn-default center-block" data-loading-text="Loading..." id="btn_submit">Submit</button>
+</div>
+
+</form>
+</div>
+
+</br>
+<div class="progress progress-striped active">
+    <div id="prog" class="progress-bar progress-bar-success" role="progressbar"
+         aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"
+         style="width: 0%;">
+        <span class="sr-only">正在运行，请稍后......</span>
+    </div>
+</div>
+</br>
+<!--
+<div class="progress progress-striped active">
+  <div class="bar" style="width: 40%;"></div>
+</div>
+-->
+</br>
+<div class="container">
+<!--<div class="panel panel-default">-->
+  <!-- Default panel contents -->
+  <!--<div class="panel-heading">Answer Phrases</div>-->
+  <!--
+  <div class="panel-body">
+    <p>The answer phrases genearated by the BiDAF model show fellows.</p>
+  </div>
+  -->
+  <!-- Table -->
+  <table class="table table-hover">
+    <thead>
+    <tr>
+      <th>#</th>
+      <th>BiDAF</th>
+      <th>RNet</th>
+    </tr>
+    </thead>
+    {% if answer %}
+          {% for phrase in answer %}
+          <tr>
+              <td>{{ phrase.cnt }}</td> 
+              <td><span>{{ phrase.bidaf.split(':::')[0]}}</span>
+                  :<span style=" color:#00F">{{ phrase.bidaf.split(':::')[1]}}</span></td>
+              <td><span>{{ phrase.rnet.split(':::')[0]}}</span>
+                  :<span style=" color:#00F">{{ phrase.rnet.split(':::')[1]}}</span></td>
+          </tr>
+          {% endfor %}
+    {% else %}
+      
+    {% endif %}
+      
+  </table>
+<!--</div>-->
+</div>
+
+{% endblock %}
