@@ -66,7 +66,6 @@ class PreproClass():
         na = []
         cy = []
         x, cx = [], []
-        answerss = []
         p = []
         word_counter, char_counter, lower_word_counter = Counter(), Counter(), Counter()
         start_ai = int(round(len(source_data['data']) * start_ratio))
@@ -82,7 +81,7 @@ class PreproClass():
                 context = para['context']
                 context = context.replace("''", '" ')
                 context = context.replace("``", '" ')
-                xi = list(map(word_tokenize, nltk.sent_tokenize(context)))       # paragraph context
+                xi = list(map(word_tokenize, [context]))       # paragraph context
                 xi = [process_tokens(tokens) for tokens in xi]  # process tokens
 
                 # given xi, add chars
@@ -106,42 +105,6 @@ class PreproClass():
                     qi = word_tokenize(qa['question'])
                     qi = process_tokens(qi)
                     cqi = [list(qij) for qij in qi]
-                    yi = []
-                    cyi = []
-                    answers = []
-                    for answer in qa['answers']:
-                        answer_text = answer['text']
-                        answers.append(answer_text)
-                        answer_start = answer['answer_start']
-                        answer_stop = answer_start + len(answer_text)
-                        # TODO : put some function that gives word_start, word_stop here
-                        yi0, yi1 = get_word_span(context, xi, answer_start, answer_stop)    #第一个词和最后一个词的句子和词索引
-
-                        
-                        #assert len(xi[yi0[0]]) > yi0[1]
-                        #assert len(xi[yi1[0]]) >= yi1[1]
-
-                        w0 = xi[yi0[0]][yi0[1]]    # 获取答案的第一个词
-                        w1 = xi[yi1[0]][yi1[1]-1]  # 获取答案的最后一个词
-                        i0 = get_word_idx(context, xi, yi0)  # 获取第一个词在context中的start位置
-                        i1 = get_word_idx(context, xi, (yi1[0], yi1[1]-1))  # 获取最后一个词在context中的start位置
-                        cyi0 = answer_start - i0  # 减去偏移，从0开始， 获取第一个词的第一个字母的索引
-                        cyi1 = answer_stop - i1 - 1  # 获取最后一个词的最后一个字母的索引
-
-                        #assert answer_text[0] == w0[cyi0], (answer_text, w0, cyi0)  # 答案的第一个字母和第一个词的第一个字幕是否相同
-                        #assert answer_text[-1] == w1[cyi1]  # 答案的最后一个字母和最后一个词的最后一个字母是否相同
-                        #assert cyi0 < 32, (answer_text, w0)
-                        #assert cyi1 < 32, (answer_text, w1)
-
-                        yi.append([yi0, yi1])
-                        cyi.append([cyi0, cyi1])
-
-                    if len(qa['answers']) == 0:
-                        yi.append([(0, 0), (0, 1)])
-                        cyi.append([0, 1])
-                        na.append(True)
-                    else:
-                        na.append(False)
 
                     for qij in qi:
                         word_counter[qij] += 1
@@ -151,13 +114,10 @@ class PreproClass():
 
                     q.append(qi)
                     cq.append(cqi)
-                    y.append(yi)
-                    cy.append(cyi)
                     rx.append(rxi)
                     rcx.append(rxi)
                     ids.append(qa['id'])
                     idxs.append(len(idxs))
-                    answerss.append(answers)
 
         #word2vec_dict = get_word2vec(args, word_counter)
         #lower_word2vec_dict = get_word2vec(args, lower_word_counter)
@@ -171,13 +131,12 @@ class PreproClass():
         lower_word2vec_dict = self.get_word2vec_q2qw2v(lower_word_counter)
 
         # add context here
-        data = {'q': q, 'cq': cq, 'y': y, '*x': rx, '*cx': rcx, 'cy': cy,
-                'idxs': idxs, 'ids': ids, 'answerss': answerss, '*p': rx, 'na': na}
-
+        data = {'q': q, 'cq': cq, '*x': rx, '*cx': rcx,
+                'idxs': idxs, 'ids': ids, '*p': rx,}
+        
+        print ('id list len = ', len(ids))
         # q:    question token list
         # cq:   question token charchater list
-        # y:    answer_start(sent_id, word_id), answer_stop+1(sent_id, word_id)
-        # cy:   answer_start在token中的id， answer_stop在token中的id
         # rx:   [article_id, paragraph_id]
         # rcx:  [article_id, paragraph_id]
         # ids:  question id list
@@ -186,7 +145,7 @@ class PreproClass():
         shared = {'x': x, 'cx': cx, 'p': p,
                   'word_counter': word_counter, 'char_counter': char_counter, 'lower_word_counter': lower_word_counter,
                   'word2vec': word2vec_dict, 'lower_word2vec': lower_word2vec_dict}
-
+        
         # x:            context tokens list  [  art[  cont[   seq[] ]            ]]
         # cx:           context tokens character list
         # p:            context [["xxx, "xxx"], []]

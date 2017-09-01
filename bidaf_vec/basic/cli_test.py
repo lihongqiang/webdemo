@@ -2,9 +2,11 @@ import os
 
 import tensorflow as tf
 
+from basic.main import main as m
+
 import os
 import time
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 flags = tf.app.flags
 
@@ -13,7 +15,7 @@ flags = tf.app.flags
 flags.DEFINE_string("model_name", "EQnA", "Model name [basic]")
 
 # flags.DEFINE_string("data_dir", "data/squad", "Data dir [data/squad]")# 数据路径
-#flags.DEFINE_string("data_dir", "data/EQnA", "Data dir [data/squad]")# 数据路径
+flags.DEFINE_string("data_dir", "data/EQnA", "Data dir [data/squad]")# 数据路径
 
 #flags.DEFINE_string("run_id", "0", "Run ID [0]")
 flags.DEFINE_string("forward_name", "single", "Forward name [single]")
@@ -57,7 +59,7 @@ flags.DEFINE_integer("batch_size", 60, "Batch size [60]")
 flags.DEFINE_integer("val_num_batches", 100, "validation num batches [100]")
 flags.DEFINE_integer("test_num_batches", 0, "test num batches [0]")
 flags.DEFINE_integer("num_epochs", 12, "Total number of epochs for training [12]")
-flags.DEFINE_integer("num_steps", 30000, "Number of steps [20000]")
+flags.DEFINE_integer("num_steps", 20000, "Number of steps [20000]")
 
 flags.DEFINE_float("init_lr", 0.001, "Initial learning rate [0.001]")
 flags.DEFINE_float("input_keep_prob", 0.8, "Input keep prob for the dropout of LSTM weights [0.8]")
@@ -127,140 +129,19 @@ flags.DEFINE_bool("highway", True, "Use highway? [True]")
 flags.DEFINE_bool("use_sentence_emb", False, "use sentence emb? [True]")
 flags.DEFINE_integer("sent_dim", 600, "sentence emb dim")
 
-# test
-flags.DEFINE_string("data_dir", 'data/input/', "input file path")
-flags.DEFINE_string("model_dir", 'model/01-08-2017/', "trained model path")
-flags.DEFINE_string("output_dir", 'data/output/', "output file path")
-flags.DEFINE_integer("num", 1, "answer number")
-flags.DEFINE_string("input_suffix", "tsv", "Filename suffix of data.")
-flags.DEFINE_integer("id_index", -1, "the index of Id")
-flags.DEFINE_integer("query_index", -1, "answer number")
-flags.DEFINE_integer("context_index", -1, "answer number")
+# add pretrained word2vec
 
-# trans to data json
-import pandas as pd
-import hashlib
-import json
-import os
-import time
-import requests
-import threading
-import sys
-from squad.prepro_class import PreproClass
-from basic.main import main as m
-ISOTIMEFORMAT='%Y-%m-%d %X'
-
-config = flags.FLAGS
-
-class ServeClass():
-    
-    def __init__(self):
-        self.prepro = PreproClass()
-
-    # input:
-    #   file_path: tsv file including (Query Context phrase)
-    #   output_dir: file dir
-    # output:
-    #   file_path: generated file path
-    def generateJson(self, file_path):
-        
-        def GetHashCode(context):
-            hash = hashlib.md5()
-            hash.update(context.encode('utf-8'))
-            return hash.hexdigest()
-        
-        online_data = pd.read_csv(file_path, header=None, sep='\t', dtype=str).fillna('')
-        if config.id_index != -1:
-            online_data.rename_axis({config.id_index: 'Id', config.query_index:'Query', config.context_index:'Context'}, axis=1, inplace=True)
-        else:
-            online_data.rename_axis({config.query_index:'Query', config.context_index:'Context'}, axis=1, inplace=True)
-            online_data['Id'] = online_data.apply(lambda row: GetHashCode(row['Context'] + ' ' + row['Query']), axis=1)
-        #online_data = pd.DataFrame({"Query":query, "Context":context, "phrase":answer}, columns=["Query", "Context", "phrase"], index=[0])
-        # 只处理lable为1的row
-        target_dev_data = {}
-        target_dev_data['version'] = '1.1'
-        target_dev_data['data'] = list()
-
-        item = {}
-        item['paragraphs'] = list()
-        item['title'] = 'Online'
-
-        def transEachRow(row, paragraphs):
-            # 新生成的context
-            paragraph = {}
-            paragraph['qas'] = list()
-            paragraph['context'] = row['Context'].strip()
-
-            phrase = {}
-            #phrase['id'] = GetHashCode(row['Context'] + ' ' + row['Query'])
-            phrase['id'] = row['Id']
-            phrase['question'] = row['Query'].strip()
-
-            paragraph['qas'].append(phrase)
-
-            paragraphs.append(paragraph)
-
-        online_data.apply(transEachRow, axis=1, args=[item['paragraphs']])
-
-        target_dev_data['data'].append(item)
-        return target_dev_data, online_data
-    
-    
-
-    def testData(self, num, data, shared, output_dir, model_dir):
-        return m(config, num, data, shared, output_dir, model_dir)
-    
-    # save answer
-    def saveAnswer(self, online_data, id2answer_dict, output_dir):
-     
-        online_data['Answer'] = online_data.apply(lambda row: '|||'.join([ ans+":::"+score for ans, score in zip(id2answer_dict[row['Id']].split('|||'), id2answer_dict['scores'][row['Id']].split('|||'))]), axis=1)
-        
-        online_data.to_csv(os.path.join(output_dir, 'output.tsv'), sep='\t', header=False, index=False)
-      
-        
-    def getAnswerPhrase(self, file_path, output_dir, model_dir, num):
-        
-        # <1s
-        print ('build json', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        data, online_data = self.generateJson(file_path)
-
-        # <1s search twice glove for word embedding
-        print ('build data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        data, shared = self.prepro.prepro_online(data)
-
-        # 3s run the model in GPU
-        print ('test data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        id2answer_dict = self.testData(num, data, shared, output_dir, model_dir)
-
-        # <1s
-        print ('save data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        
-        self.saveAnswer(online_data, id2answer_dict, output_dir)
-        print ('finish ', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        
-        #self.AnswerByBiDAF = ans
-        #return ans
-        
-def get_input_data(data_dir, suffix):
-    file_list = os.listdir(data_dir)
-    data_path = ""
-    for fn in file_list:
-        if fn.endswith(suffix):
-            data_path = os.path.join(data_dir, fn)
-            return data_path
-    return data_path
 
 def main(_):
+    config = flags.FLAGS
+
+    # change out dir
+    # config.out_dir = os.path.join(config.out_base_dir, config.model_name, str(config.run_id).zfill(2)  )
     
-    assert config.num >= 0, ("--num must >= 0")
-    assert config.input_suffix == 'tsv', ("--input_suffix must be tsv")
-    # assert config.id_index >= 0, ("--id_index must >= 0")
-    assert config.query_index >= 0, ("--query_index must >= 0")
-    assert config.context_index >= 0, ("--context_index must >= 0")
-    
-    serve = ServeClass()
-    file_path = get_input_data(config.data_dir, config.input_suffix)
-    serve.getAnswerPhrase(file_path, config.output_dir, config.model_dir, config.num)
-    
+    # EQnA train
+    print ('out dir = ' + config.out_dir)
+
+    m(config)
+
 if __name__ == "__main__":
     tf.app.run()

@@ -2,9 +2,11 @@ import os
 
 import tensorflow as tf
 
+from basic.main import main as m
+
 import os
 import time
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 flags = tf.app.flags
 
@@ -13,7 +15,7 @@ flags = tf.app.flags
 flags.DEFINE_string("model_name", "EQnA", "Model name [basic]")
 
 # flags.DEFINE_string("data_dir", "data/squad", "Data dir [data/squad]")# 数据路径
-#flags.DEFINE_string("data_dir", "data/EQnA", "Data dir [data/squad]")# 数据路径
+flags.DEFINE_string("data_dir", "data/EQnA", "Data dir [data/squad]")# 数据路径
 
 #flags.DEFINE_string("run_id", "0", "Run ID [0]")
 flags.DEFINE_string("forward_name", "single", "Forward name [single]")
@@ -57,7 +59,7 @@ flags.DEFINE_integer("batch_size", 60, "Batch size [60]")
 flags.DEFINE_integer("val_num_batches", 100, "validation num batches [100]")
 flags.DEFINE_integer("test_num_batches", 0, "test num batches [0]")
 flags.DEFINE_integer("num_epochs", 12, "Total number of epochs for training [12]")
-flags.DEFINE_integer("num_steps", 30000, "Number of steps [20000]")
+flags.DEFINE_integer("num_steps", 20000, "Number of steps [20000]")
 
 flags.DEFINE_float("init_lr", 0.001, "Initial learning rate [0.001]")
 flags.DEFINE_float("input_keep_prob", 0.8, "Input keep prob for the dropout of LSTM weights [0.8]")
@@ -69,15 +71,15 @@ flags.DEFINE_integer("char_emb_size", 8, "Char emb size [8]")
 flags.DEFINE_string("out_channel_dims", "100", "Out channel dims of Char-CNN, separated by commas [100]")
 flags.DEFINE_string("filter_heights", "5", "Filter heights of Char-CNN, separated by commas [5]")
 flags.DEFINE_bool("finetune", False, "Finetune word embeddings? [False]")
-
+flags.DEFINE_bool("highway", True, "Use highway? [True]")
 flags.DEFINE_integer("highway_num_layers", 2, "highway num layers [2]")
 flags.DEFINE_bool("share_cnn_weights", True, "Share Char-CNN weights [True]")
 flags.DEFINE_bool("share_lstm_weights", True, "Share pre-processing (phrase-level) LSTM weights [True]")
 flags.DEFINE_float("var_decay", 0.999, "Exponential moving average decay for variables [0.999]")
 
 # Optimizations
-flags.DEFINE_bool("cluster", False, "Cluster data for faster training [False]")
-flags.DEFINE_bool("len_opt", False, "Length optimization? [False]")
+flags.DEFINE_bool("cluster", True, "Cluster data for faster training [False]")
+flags.DEFINE_bool("len_opt", True, "Length optimization? [False]")
 flags.DEFINE_bool("cpu_opt", False, "CPU optimization? GPU computation can be slower [False]")
 
 # Logging and saving options
@@ -86,7 +88,7 @@ flags.DEFINE_integer("log_period", 100, "Log period [100]")
 flags.DEFINE_integer("eval_period", 1000, "Eval period [1000]")
 flags.DEFINE_integer("save_period", 1000, "Save Period [1000]")
 flags.DEFINE_integer("max_to_keep", 20, "Max recent saves to keep [20]")
-flags.DEFINE_bool("dump_eval", True, "dump eval? [True]")
+flags.DEFINE_bool("dump_eval", False, "dump eval? [True]")
 flags.DEFINE_bool("dump_answer", True, "dump answer? [True]")
 flags.DEFINE_bool("vis", False, "output visualization numbers? [False]")
 flags.DEFINE_bool("dump_pickle", True, "Dump pickle instead of json? [True]")
@@ -112,155 +114,110 @@ flags.DEFINE_string("logit_func", "tri_linear", "logit func [tri_linear]")
 flags.DEFINE_string("answer_func", "linear", "answer logit func [linear]")
 flags.DEFINE_string("sh_logit_func", "tri_linear", "sh logit func [tri_linear]")
 
-
-# Ablation options 
+# Ablation options
+flags.DEFINE_bool("use_char_emb", True, "use char emb? [True]")
+flags.DEFINE_bool("use_word_emb", True, "use word embedding? [True]")
 flags.DEFINE_bool("q2c_att", True, "question-to-context attention? [True]")
 flags.DEFINE_bool("c2q_att", True, "context-to-question attention? [True]")
 flags.DEFINE_bool("dynamic_att", False, "Dynamic attention [False]")
-
-# Ablation options 
-flags.DEFINE_bool("use_char_emb", True, "use char emb? [True]")
-flags.DEFINE_bool("use_word_emb", True, "use word embedding? [True]")
-flags.DEFINE_bool("highway", True, "Use highway? [True]")
-
-# addition 
-flags.DEFINE_bool("use_sentence_emb", False, "use sentence emb? [True]")
-flags.DEFINE_integer("sent_dim", 600, "sentence emb dim")
-
-# test
-flags.DEFINE_string("data_dir", 'data/input/', "input file path")
-flags.DEFINE_string("model_dir", 'model/01-08-2017/', "trained model path")
-flags.DEFINE_string("output_dir", 'data/output/', "output file path")
-flags.DEFINE_integer("num", 1, "answer number")
-flags.DEFINE_string("input_suffix", "tsv", "Filename suffix of data.")
-flags.DEFINE_integer("id_index", -1, "the index of Id")
-flags.DEFINE_integer("query_index", -1, "answer number")
-flags.DEFINE_integer("context_index", -1, "answer number")
-
-# trans to data json
-import pandas as pd
-import hashlib
+    
+import argparse
 import json
+import math
 import os
-import time
-import requests
-import threading
-import sys
-from squad.prepro_class import PreproClass
-from basic.main import main as m
-ISOTIMEFORMAT='%Y-%m-%d %X'
+import shutil
+from pprint import pprint
 
-config = flags.FLAGS
+import tensorflow as tf
+from tqdm import tqdm
+import numpy as np
 
-class ServeClass():
+from basic.evaluator import ForwardEvaluator, MultiGPUF1Evaluator
+from basic.graph_handler import GraphHandler
+from basic.model import get_multi_gpu_models
+from basic.trainer import MultiGPUTrainer
+from basic.read_data import read_data, get_squad_data_filter, update_config, update_config_online
+from my.tensorflow import get_num_params
+
+class OlineTest():
     
-    def __init__(self):
-        self.prepro = PreproClass()
-
-    # input:
-    #   file_path: tsv file including (Query Context phrase)
-    #   output_dir: file dir
-    # output:
-    #   file_path: generated file path
-    def generateJson(self, file_path):
+    def __init__(self, out_dir):
+        config = flags.FLAGS
+        config.online = True
+        config.out_dir = out_dir
+        config.mode = 'test'
+        self.set_dirs(config)
+        print ('out dir = ' + config.out_dir)
         
-        def GetHashCode(context):
-            hash = hashlib.md5()
-            hash.update(context.encode('utf-8'))
-            return hash.hexdigest()
         
-        online_data = pd.read_csv(file_path, header=None, sep='\t', dtype=str).fillna('')
-        if config.id_index != -1:
-            online_data.rename_axis({config.id_index: 'Id', config.query_index:'Query', config.context_index:'Context'}, axis=1, inplace=True)
-        else:
-            online_data.rename_axis({config.query_index:'Query', config.context_index:'Context'}, axis=1, inplace=True)
-            online_data['Id'] = online_data.apply(lambda row: GetHashCode(row['Context'] + ' ' + row['Query']), axis=1)
-        #online_data = pd.DataFrame({"Query":query, "Context":context, "phrase":answer}, columns=["Query", "Context", "phrase"], index=[0])
-        # 只处理lable为1的row
-        target_dev_data = {}
-        target_dev_data['version'] = '1.1'
-        target_dev_data['data'] = list()
-
-        item = {}
-        item['paragraphs'] = list()
-        item['title'] = 'Online'
-
-        def transEachRow(row, paragraphs):
-            # 新生成的context
-            paragraph = {}
-            paragraph['qas'] = list()
-            paragraph['context'] = row['Context'].strip()
-
-            phrase = {}
-            #phrase['id'] = GetHashCode(row['Context'] + ' ' + row['Query'])
-            phrase['id'] = row['Id']
-            phrase['question'] = row['Query'].strip()
-
-            paragraph['qas'].append(phrase)
-
-            paragraphs.append(paragraph)
-
-        online_data.apply(transEachRow, axis=1, args=[item['paragraphs']])
-
-        target_dev_data['data'].append(item)
-        return target_dev_data, online_data
-    
-    
-
-    def testData(self, num, data, shared, output_dir, model_dir):
-        return m(config, num, data, shared, output_dir, model_dir)
-    
-    # save answer
-    def saveAnswer(self, online_data, id2answer_dict, output_dir):
-     
-        online_data['Answer'] = online_data.apply(lambda row: '|||'.join([ ans+":::"+score for ans, score in zip(id2answer_dict[row['Id']].split('|||'), id2answer_dict['scores'][row['Id']].split('|||'))]), axis=1)
+        update_config_online(config)
+        models = get_multi_gpu_models(config)
+        self.model = models[0]
+        self.evaluator = MultiGPUF1Evaluator(config, models, tensor_dict=models[0].tensor_dict if config.vis else None)
+        self.sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options = tf.GPUOptions(allow_growth = True)))
+        self.graph_handler = GraphHandler(config, self.model)
         
-        online_data.to_csv(os.path.join(output_dir, 'output.tsv'), sep='\t', header=False, index=False)
-      
+        self.graph_handler.initialize(self.sess)
         
-    def getAnswerPhrase(self, file_path, output_dir, model_dir, num):
         
-        # <1s
-        print ('build json', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        data, online_data = self.generateJson(file_path)
+    def main(self, data_dir, ans_num):
+        config = flags.FLAGS
+        config.data_dir = data_dir
+        config.topk = ans_num
+        config.answer_dir = data_dir
+        with tf.device(config.device):
+            self._test(config)
 
-        # <1s search twice glove for word embedding
-        print ('build data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        data, shared = self.prepro.prepro_online(data)
 
-        # 3s run the model in GPU
-        print ('test data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        id2answer_dict = self.testData(num, data, shared, output_dir, model_dir)
+    def set_dirs(self, config):
 
-        # <1s
-        print ('save data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        
-        self.saveAnswer(online_data, id2answer_dict, output_dir)
-        print ('finish ', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        
-        #self.AnswerByBiDAF = ans
-        #return ans
-        
-def get_input_data(data_dir, suffix):
-    file_list = os.listdir(data_dir)
-    data_path = ""
-    for fn in file_list:
-        if fn.endswith(suffix):
-            data_path = os.path.join(data_dir, fn)
-            return data_path
-    return data_path
+        config.save_dir = os.path.join(config.out_dir, "save")
+        config.log_dir = os.path.join(config.out_dir, "log")
+        config.eval_dir = os.path.join(config.out_dir, "eval")
+        config.answer_dir = os.path.join(config.out_dir, "answer")
+        if not os.path.exists(config.out_dir):
+            os.makedirs(config.out_dir)
+        if not os.path.exists(config.save_dir):
+            os.mkdir(config.save_dir)
+        if not os.path.exists(config.log_dir):
+            os.mkdir(config.log_dir)
+        if not os.path.exists(config.answer_dir):
+            os.mkdir(config.answer_dir)
+        if not os.path.exists(config.eval_dir):
+            os.mkdir(config.eval_dir)
 
-def main(_):
-    
-    assert config.num >= 0, ("--num must >= 0")
-    assert config.input_suffix == 'tsv', ("--input_suffix must be tsv")
-    # assert config.id_index >= 0, ("--id_index must >= 0")
-    assert config.query_index >= 0, ("--query_index must >= 0")
-    assert config.context_index >= 0, ("--context_index must >= 0")
-    
-    serve = ServeClass()
-    file_path = get_input_data(config.data_dir, config.input_suffix)
-    serve.getAnswerPhrase(file_path, config.output_dir, config.model_dir, config.num)
-    
-if __name__ == "__main__":
-    tf.app.run()
+
+    def _test(self, config):
+        test_data = read_data(config, 'online', True)
+        #update_config(config, [test_data])
+
+        if config.use_glove_for_unk:
+            word2vec_dict = test_data.shared['lower_word2vec'] if config.lower_word else test_data.shared['word2vec']
+            new_word2idx_dict = test_data.shared['new_word2idx']
+            idx2vec_dict = {idx: word2vec_dict[word] for word, idx in new_word2idx_dict.items()}
+            new_emb_mat = np.array([idx2vec_dict[idx] for idx in range(len(idx2vec_dict))], dtype='float32')
+            config.new_emb_mat = new_emb_mat
+
+        pprint(config.__flags, indent=2)
+        num_steps = math.ceil(1.0 * test_data.num_examples / (config.batch_size * config.num_gpus)) # 2021 / 10 = 203
+
+        # 这个地方可以自己设置test的num batch，就是不测试所有的batch，一般小于总大小
+        if 0 < config.test_num_batches < num_steps:
+            num_steps = config.test_num_batches
+
+        e = None
+        for multi_batch in tqdm(test_data.get_multi_batches(config.batch_size, config.num_gpus, num_steps=num_steps, cluster=config.cluster), total=num_steps):
+            ei = self.evaluator.get_evaluation(self.sess, multi_batch)
+            e = ei if e is None else e + ei
+            if config.vis:
+                eval_subdir = os.path.join(config.eval_dir, "{}-{}".format(ei.data_type, str(ei.global_step).zfill(6)))
+                if not os.path.exists(eval_subdir):
+                    os.mkdir(eval_subdir)
+                path = os.path.join(eval_subdir, str(ei.idxs[0]).zfill(8))
+                self.graph_handler.dump_eval(ei, path=path)
+        print(e)
+        if config.dump_answer:
+            print("dumping answer ...")
+            graph_handler.dump_answer(e)
+
+

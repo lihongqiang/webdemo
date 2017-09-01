@@ -11,7 +11,6 @@ from tqdm import tqdm
 from squad.utils import get_word_span, get_word_idx, process_tokens
 
 import nltk.tokenize as nltk
-import hashlib
 
 def main():
     args = get_args()
@@ -33,9 +32,9 @@ def get_args():
     parser.add_argument("--train_name", default='train-v1.1.json')
     parser.add_argument('-d', "--debug", action='store_true')
     parser.add_argument("--train_ratio", default=0.9, type=int)
-    parser.add_argument("--glove_corpus", default="840B")
+    parser.add_argument("--glove_corpus", default="6B")
     parser.add_argument("--glove_dir", default=glove_dir)
-    parser.add_argument("--glove_vec_size", default=300, type=int)
+    parser.add_argument("--glove_vec_size", default=100, type=int)
     parser.add_argument("--mode", default="full", type=str)
     parser.add_argument("--single_path", default="", type=str)
     parser.add_argument("--tokenizer", default="PTB", type=str)
@@ -43,12 +42,6 @@ def get_args():
     parser.add_argument("--port", default=8000, type=int)
     parser.add_argument("--split", action='store_true')
     parser.add_argument("--suffix", default="")
-    
-    # q2qw2v_path
-    parser.add_argument("--q2qw2v_path", default='/home/t-honli/data/s2vec_emb/q2q.w2v.300d.txt')
-    
-    # q2p word2vec ebm
-    parser.add_argument("--q2pw2v_emb_path", default='/home/t-honli/data/s2vec/text-w2v.model')
     
     # online
     parser.add_argument("--online", default=False, type=bool)
@@ -127,56 +120,10 @@ def get_word2vec(args, word_counter):
     print("{}/{} of word vocab have corresponding vectors in {}".format(len(word2vec_dict), len(word_counter), glove_path))
     return word2vec_dict
 
-# 基于qp model retrain 的emb
-def get_word2vec_q2qw2v(args, word_counter):
-    q2qw2v_path = args.q2qw2v_path
-    total = len(q2qw2v_path)
-    word2vec_dict = {}
-    with open(q2qw2v_path, 'r', encoding='utf-8') as fh:
-        for line in tqdm(fh, total=total):
-            array = line.lstrip().rstrip().split(" ")
-            word = array[0]
-            vector = list(map(float, array[1:]))
-            if word in word_counter:
-                word2vec_dict[word] = vector
-            elif word.capitalize() in word_counter:
-                word2vec_dict[word.capitalize()] = vector
-            elif word.lower() in word_counter:
-                word2vec_dict[word.lower()] = vector
-            elif word.upper() in word_counter:
-                word2vec_dict[word.upper()] = vector
 
-    print("{}/{} of word vocab have corresponding vectors in {}".format(len(word2vec_dict), len(word_counter), q2qw2v_path))
-    return word2vec_dict
-
-# 基于EQnA qp data训练的word2vec
-from gensim.models import Word2Vec
-def get_word2vec_q2pw2v_emb(args, word_counter):
-    model = Word2Vec.load(args.q2pw2v_emb_path)
-    total = len(list(word_counter.keys()))
-    word2vec_dict = {}
-    for word in tqdm(word_counter.keys(), total=total):
-        if word in model.wv.vocab:
-            word2vec_dict[word] = list(map(float, model.wv[word]))
-        elif word.capitalize() in model.wv.vocab:
-            word2vec_dict[word] = list(map(float, model.wv[word.capitalize()]))
-        elif word.lower() in model.wv.vocab:
-            word2vec_dict[word] = list(map(float, model.wv[word.lower()]))
-        elif word.upper() in model.wv.vocab:
-            word2vec_dict[word] = list(map(float, model.wv[word.upper()]))
-
-    print("{}/{} of word vocab have corresponding vectors in {}".format(len(word2vec_dict), len(word_counter), args.q2pw2v_emb_path))
-    return word2vec_dict
-
-def getHashCode(context):
-    hash = hashlib.md5()
-    hash.update(context.encode('utf-8'))
-    return hash.hexdigest()
-            
 def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="default", in_path=None):
     if args.tokenizer == "PTB":
         
-        sent_tokenize = nltk.sent_tokenize
         def word_tokenize(tokens):
             return [token.replace("''", '"').replace("``", '"') for token in nltk.word_tokenize(tokens)]
     elif args.tokenizer == 'Stanford':
@@ -202,25 +149,18 @@ def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="defa
     word_counter, char_counter, lower_word_counter = Counter(), Counter(), Counter()
     start_ai = int(round(len(source_data['data']) * start_ratio))
     stop_ai = int(round(len(source_data['data']) * stop_ratio))
-    
-    # sent2vec hashid -> vec
-    # c2id = dict()
-    # q2id = dict()
-    # xcnt = 0
     for ai, article in enumerate(tqdm(source_data['data'][start_ai:stop_ai])):
         xp, cxp = [], []
         pp = []
         x.append(xp)
         cx.append(cxp)
         p.append(pp)
-        
-        
         for pi, para in enumerate(article['paragraphs']):
             # wordss
             context = para['context']
             context = context.replace("''", '" ')
             context = context.replace("``", '" ')
-            xi = list(map(word_tokenize, sent_tokenize(context)))
+            xi = list(map(word_tokenize, nltk.sent_tokenize(context)))
             xi = [process_tokens(tokens) for tokens in xi]  # process tokens
             
             # if pi == 0:
@@ -231,17 +171,6 @@ def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="defa
             # given xi, add chars
             cxi = [[list(xijk) for xijk in xij] for xij in xi]
             xp.append(xi)
-            
-            
-            
-            
-            # only one sentence add
-            # c2id[getHashCode(' '.join(xi[0]))] = xcnt
-            # xcnt += 1
-            
-            
-            
-                             
             cxp.append(cxi)
             pp.append(context)
 
@@ -252,16 +181,13 @@ def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="defa
                     for xijkl in xijk:
                         char_counter[xijkl] += len(para['qas']) # context 中的每个token，权重为question的个数
 
-            rxi = [ai, pi] # 文章索引， 段落索引
+            rxi = [ai, pi]
             assert len(x) - 1 == ai
             assert len(x[ai]) - 1 == pi
             for qa in para['qas']:
                 # get words
                 qi = word_tokenize(qa['question'])
                 qi = process_tokens(qi)
-                
-                
-                
                 cqi = [list(qij) for qij in qi]
                 yi = []
                 cyi = []
@@ -291,7 +217,7 @@ def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="defa
                     # print ('answer_text:', answer_text)
                     # print ('w0:', w0)
                     # print ('w1:', w1)
-                    assert answer_text[0] == w0[cyi0], (answer_text, w0, cyi0)  # 答案的第一个字母和第一个词的第一个字母是否相同
+                    assert answer_text[0] == w0[cyi0], (answer_text, w0, cyi0)  # 答案的第一个字母和第一个词的第一个字幕是否相同
                     assert answer_text[-1] == w1[cyi1]  # 答案的最后一个字母和最后一个词的最后一个字母是否相同
                     assert cyi0 < 32, (answer_text, w0)
                     assert cyi1 < 32, (answer_text, w1)
@@ -321,24 +247,12 @@ def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="defa
                 ids.append(qa['id'])
                 idxs.append(len(idxs))
                 answerss.append(answers)
-                
-                #q2id[getHashCode(' '.join(qi))] = len(list(q2id.keys()))
-                
 
         if args.debug:
             break
-    
-    # glove
-    # word2vec_dict = get_word2vec(args, word_counter)
-    # lower_word2vec_dict = get_word2vec(args, lower_word_counter)
-    
-    # get_word2vec_q2qw2v EQnA model emb
-    # word2vec_dict = get_word2vec_q2qw2v(args, word_counter)
-    # lower_word2vec_dict = get_word2vec_q2qw2v(args, lower_word_counter)
-    
-    # get_word2vec_q2pw2v_emb EQnA data emb
-    #word2vec_dict = get_word2vec_q2pw2v_emb(args, word_counter)
-    #lower_word2vec_dict = get_word2vec_q2pw2v_emb(args, lower_word_counter)
+
+    word2vec_dict = get_word2vec(args, word_counter)
+    lower_word2vec_dict = get_word2vec(args, lower_word_counter)
 
     # add context here
     data = {'q': q, 'cq': cq, 'y': y, '*x': rx, '*cx': rcx, 'cy': cy,
@@ -352,11 +266,6 @@ def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="defa
     # rcx:  [article_id, paragraph_id]
     # ids:  question id list
     # idxs: question id list(start from 0)
-    
-    # add 
-    #shared = {'x': x, 'cx': cx, 'p': p,
-    #          'word_counter': word_counter, 'char_counter': char_counter, 'lower_word_counter': lower_word_counter,
-    #          'word2vec': word2vec_dict, 'lower_word2vec': lower_word2vec_dict, 'c2id':c2id, 'q2id':q2id}
     
     shared = {'x': x, 'cx': cx, 'p': p,
               'word_counter': word_counter, 'char_counter': char_counter, 'lower_word_counter': lower_word_counter,
@@ -506,16 +415,8 @@ def prepro_online(args, start_ratio=0.0, stop_ratio=1.0, in_path=None):
         if args.debug:
             break
 
-    #word2vec_dict = get_word2vec(args, word_counter)
-    #lower_word2vec_dict = get_word2vec(args, lower_word_counter)
-    
-    # get_word2vec_q2pw2v_emb EQnA data emb
-    #word2vec_dict = get_word2vec_q2pw2v_emb(args, word_counter)
-    #lower_word2vec_dict = get_word2vec_q2pw2v_emb(args, lower_word_counter)
-    
-    # get_word2vec_q2qw2v EQnA model emb
-    word2vec_dict = get_word2vec_q2qw2v(args, word_counter)
-    lower_word2vec_dict = get_word2vec_q2qw2v(args, lower_word_counter)
+    word2vec_dict = get_word2vec(args, word_counter)
+    lower_word2vec_dict = get_word2vec(args, lower_word_counter)
 
     # add context here
     data = {'q': q, 'cq': cq, 'y': y, '*x': rx, '*cx': rcx, 'cy': cy,
@@ -534,7 +435,6 @@ def prepro_online(args, start_ratio=0.0, stop_ratio=1.0, in_path=None):
               'word_counter': word_counter, 'char_counter': char_counter, 'lower_word_counter': lower_word_counter,
               'word2vec': word2vec_dict, 'lower_word2vec': lower_word2vec_dict}
 
-    print (len(ids))
     # x:            context tokens list  [  art[  cont[   seq[] ]            ]]
     # cx:           context tokens character list
     # p:            context [["xxx, "xxx"], []]

@@ -246,6 +246,9 @@ class F1Evaluator(LabeledEvaluator):
         self.yp2 = model.yp2
         self.wyp = model.wyp
         self.loss = model.loss
+        self.p0 = model.tensor_dict['p0']
+        self.u = model.tensor_dict['u']
+        self.h = model.tensor_dict['h']
         if config.na:
             self.na = model.na_prob
 
@@ -311,6 +314,35 @@ class F1Evaluator(LabeledEvaluator):
         
         
         return id2answer_dict
+    
+    def get_vector(self, sess, batch):
+        idxs, data_set = self._split_batch(batch)
+        assert isinstance(data_set, DataSet)
+        feed_dict = self._get_feed_dict(batch)
+        if self.config.na:
+            global_step, p0, u, h, na = sess.run([self.global_step, self.p0, self.u, self.h, self.na], feed_dict=feed_dict)
+        else:
+            global_step, p0, u, h = sess.run([self.global_step, self.p0, self.u, self.h], feed_dict=feed_dict)
+            
+                                    #    M=1
+        p0 = np.array(p0[:data_set.num_examples]) # [N, M, JX, 8d] fw bw
+        u = np.array(u[:data_set.num_examples]) # [N, JX, 2d] fw bw
+        h = np.array(h[:data_set.num_examples]) # [N, M, JX, 2d] fw bw
+        print (p0.shape, u.shape, h.shape)
+        
+        hd = h.shape[-1]//2
+        ud = u.shape[-1]//2
+        p0d = p0.shape[-1]//8
+        
+        h = np.array([np.concatenate([m[0][0][hd:], m[0][-1][:hd]]) for m in h])
+        u = np.array([np.concatenate([m[0][ud:], m[-1][:ud]]) for m in u])
+        p0 = np.array([np.concatenate([m[0][0][p0d:2*p0d], m[0][0][3*p0d:4*p0d], m[0][0][5*p0d:6*p0d], m[0][0][7*p0d:8*p0d],
+                            m[0][-1][0:p0d], m[0][-1][2*p0d:3*p0d], m[0][-1][4*p0d:5*p0d], m[0][-1][6*p0d:7*p0d]]) for m in p0]) 
+        
+        print (p0.shape, u.shape, h.shape)
+        
+        id2vec = {vec[0]: vec[1:] for vec in zip(data_set.data['ids'], h, u, p0)}
+        return id2vec
 
     def _split_batch(self, batch):
         return batch

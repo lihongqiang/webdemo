@@ -13,7 +13,7 @@ flags = tf.app.flags
 flags.DEFINE_string("model_name", "EQnA", "Model name [basic]")
 
 # flags.DEFINE_string("data_dir", "data/squad", "Data dir [data/squad]")# 数据路径
-flags.DEFINE_string("data_dir", "data/EQnA", "Data dir [data/squad]")# 数据路径
+#flags.DEFINE_string("data_dir", "data/EQnA", "Data dir [data/squad]")# 数据路径
 
 #flags.DEFINE_string("run_id", "0", "Run ID [0]")
 flags.DEFINE_string("forward_name", "single", "Forward name [single]")
@@ -54,7 +54,7 @@ flags.DEFINE_boolean("sentece_token", False, "sentece")
 
 # Training / test parameters
 flags.DEFINE_integer("batch_size", 60, "Batch size [60]")
-flags.DEFINE_integer("val_num_batches", 100, "validation num batches [100]")
+flags.DEFINE_integer("val_num_batches", 0, "validation num batches [100]")
 flags.DEFINE_integer("test_num_batches", 0, "test num batches [0]")
 flags.DEFINE_integer("num_epochs", 12, "Total number of epochs for training [12]")
 flags.DEFINE_integer("num_steps", 30000, "Number of steps [20000]")
@@ -128,11 +128,14 @@ flags.DEFINE_bool("use_sentence_emb", False, "use sentence emb? [True]")
 flags.DEFINE_integer("sent_dim", 600, "sentence emb dim")
 
 # test
-flags.DEFINE_string("file_path", 'data/input/input.tsv', "input file path")
+flags.DEFINE_string("data_dir", 'data/input/', "input file path")
 flags.DEFINE_string("model_dir", 'model/01-08-2017/', "trained model path")
 flags.DEFINE_string("output_dir", 'data/output/', "output file path")
 flags.DEFINE_integer("num", 1, "answer number")
 flags.DEFINE_string("input_suffix", "tsv", "Filename suffix of data.")
+flags.DEFINE_integer("id_index", -1, "the index of Id")
+flags.DEFINE_integer("query_index", -1, "answer number")
+flags.DEFINE_integer("context_index", -1, "answer number")
 
 # trans to data json
 import pandas as pd
@@ -144,7 +147,7 @@ import requests
 import threading
 import sys
 from squad.prepro_class import PreproClass
-from basic.main import BiDAF
+from basic.main import main as m
 ISOTIMEFORMAT='%Y-%m-%d %X'
 
 config = flags.FLAGS
@@ -152,18 +155,29 @@ config = flags.FLAGS
 class ServeClass():
     
     def __init__(self):
-        self.bidaf = BiDAF(config)
         self.prepro = PreproClass()
-        
+
     # input:
     #   file_path: tsv file including (Query Context phrase)
     #   output_dir: file dir
     # output:
     #   file_path: generated file path
-    def generateJson(self, Context, Query):
-        col_names = ['Query', 'Context']
-        #online_data = pd.read_csv(file_path, header=0, sep='\t', names=col_names, dtype=str).fillna('')
-        online_data = pd.DataFrame({"Query":Query, "Context":Context}, columns=["Query", "Context"], index=[0])
+    def generateJson(self, file_path):
+        
+        def GetHashCode(context):
+            hash = hashlib.md5()
+            hash.update(context.encode('utf-8'))
+            return hash.hexdigest()
+        
+        online_data = pd.read_csv(file_path, header=None, sep='\t', dtype=str).fillna('')
+        
+        if config.id_index != -1:
+            online_data.rename_axis({config.id_index: 'Id', config.query_index:'Query', config.context_index:'Context'}, axis=1, inplace=True)
+        else:
+            online_data.rename_axis({config.query_index:'Query', config.context_index:'Context'}, axis=1, inplace=True)
+            online_data['Id'] = online_data.apply(lambda row: GetHashCode(row['Context'] + ' ' + row['Query']), axis=1)
+            
+        #online_data = pd.DataFrame({"Query":query, "Context":context, "phrase":answer}, columns=["Query", "Context", "phrase"], index=[0])
         # 只处理lable为1的row
         target_dev_data = {}
         target_dev_data['version'] = '1.1'
@@ -173,160 +187,90 @@ class ServeClass():
         item['paragraphs'] = list()
         item['title'] = 'Online'
 
-        # 处理一个context对应一个quesiton，对应多个answer的情况
-        paragraphs_dict = {}
-        num = 0
-        
-        def GetHashCode(context):
-            hash = hashlib.md5()
-            hash.update(context.encode('utf-8'))
-            return hash.hexdigest()
-    
-        def transEachRow(row, paragraphs_dict, num):
+        def transEachRow(row, paragraphs):
             # 新生成的context
             paragraph = {}
             paragraph['qas'] = list()
             paragraph['context'] = row['Context'].strip()
 
             phrase = {}
-            phrase['id'] = GetHashCode(row['Context'] + ' ' + row['Query'])
+            #phrase['id'] = GetHashCode(row['Context'] + ' ' + row['Query'])
+            phrase['id'] = row['Id']
             phrase['question'] = row['Query'].strip()
-            phrase['answers'] = list()
-
-            phrase_answer = {}
-            phrase_answer['text'] = paragraph['context'].split(' ')[0]
-
-            phrase_answer['answer_start'] = paragraph['context'].find(phrase_answer['text'])
-            if phrase_answer['answer_start'] == -1:
-                print ('can not find answer')
-                print (paragraph['context'])
-                print (phrase_answer['text'])
-                print 
-            phrase['answers'].append(phrase_answer)
 
             paragraph['qas'].append(phrase)
 
-            paragraph_key = GetHashCode(paragraph['context'])
-            # 判断是否存在该context， 一个context只有一个quesiotn
-            if paragraph_key not in paragraphs_dict:
-                paragraphs_dict[paragraph_key] = paragraph
-            else:
-                paragraphs_dict[paragraph_key]['qas'][0]['answers'].append(phrase_answer)
+            paragraphs.append(paragraph)
 
-        online_data.apply(transEachRow, axis=1, args=[paragraphs_dict, num])
-        item['paragraphs'] = list(paragraphs_dict.values())
+        online_data.apply(transEachRow, axis=1, args=[item['paragraphs']])
 
-        # print (len(list(paragraphs_dict.values())))
         target_dev_data['data'].append(item)
-        return target_dev_data
+        return target_dev_data, online_data
     
     
 
     def testData(self, num, data, shared, output_dir, model_dir):
-        
-        return self.bidaf.main(config, num, data, shared, output_dir, model_dir)
-        
-        # test data  python -m basic.cli --len_opt --cluster --data_dir=data/online --online=True
-        #file_name = file_path.split('/')[-1]
-        #data_dir = os.path.join('/home/t-honli/bi-att-flow/data/online', file_name.split('.')[0])
-        #answer_dir = data_dir
-        #ans_num = num
-        #out_dir = 'out/EQnA/no_sent_token/01-08-2017'
-        #os.system("python -m basic.cli --len_opt --cluster --dump_eval=False --data_dir={} --online=True --topk={} --out_dir={} --answer_dir={}".format(data_dir, ans_num, out_dir, answer_dir))
-        
-        
+        return m(config, num, data, shared, output_dir, model_dir)
     
-    # show answer
-    def showAnswer(self, answer):
-        answer_list = []
-        for key,val in list(answer.items()):
-            if key != 'scores':
-                phrases = val.split('|||')
-                scores = answer['scores'][key].split('|||')
-                cnt = 1
-                for phrase, score in zip(phrases, scores):
-                    # print (cnt, phrase, score)
-                    answer_list.append([cnt, phrase, score])
-                    cnt += 1
-        return answer_list
+    # save answer
+    def saveAnswer(self, online_data, id2vec, output_dir):
+     
+        if len(id2vec.items()) != len(online_data):
+            print ('id2vec len ', len(id2vec.items()))
+            print ('data pandas len', len(online_data))
+            print ('drop dul len', len(online_data.drop_duplicates(subset='Id')))
+            return 
+
+        online_data['h'] = online_data.apply(lambda row: ' '.join(id2vec[row['Id']][0].astype(str)), axis=1)
+        online_data['u'] = online_data.apply(lambda row: ' '.join(id2vec[row['Id']][1].astype(str)), axis=1)
+        online_data['p0'] = online_data.apply(lambda row: ' '.join(id2vec[row['Id']][2].astype(str)), axis=1)
+        
+        online_data.to_csv(os.path.join(output_dir, 'output.tsv'), sep='\t', header=False, index=False)
       
         
-    def getAnswerPhrase(self, context, question, output_dir, model_dir, num):
+    def getAnswerPhrase(self, file_path, output_dir, model_dir, num):
         
         # <1s
-        # print ('build json', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        data = self.generateJson(context, question)
+        print ('build json', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
+        data, online_data = self.generateJson(file_path)
 
         # <1s search twice glove for word embedding
-        # print ('build data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
+        print ('build data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
         data, shared = self.prepro.prepro_online(data)
 
-        # 12s run the model in GPU
-        print ('tets data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        id2answer_dict = self.testData(num, data, shared, output_dir, model_dir)
-        print (id2answer_dict)
-        #self.testDataOline(num, file_path)
+        # 3s run the model in GPU
+        print ('test data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
+        id2vec = self.testData(num, data, shared, output_dir, model_dir)
 
         # <1s
-        #print ('show data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
+        print ('save data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
         
-        ans = self.showAnswer(id2answer_dict)
+        self.saveAnswer(online_data, id2vec, output_dir)
         print ('finish ', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
         
-        self.AnswerByBiDAF = ans
-        return ans
-    
-    def getAnswerByRNet(self, context, question, num):
-        payload = {
-            "context":context,
-            "question":question,
-            "num":num
-        }
-        try:
-            r = requests.post("http://10.172.126.49:5000/demo", data=payload, timeout=50)
-        except:
-            print ('rnet network error.')
-            answer_list = []
-            self.AnswerByRNet = answer_list
-            return answer_list
+        #self.AnswerByBiDAF = ans
+        #return ans
         
-        answer = json.loads(r.text)['answer']
-        answer_list = []
-        phrases = answer.split('|||')
-        cnt = 1
-        for phrase in phrases:
-            ans, score = phrase.split(':::')
-            answer_list.append([cnt, ans, score])
-            cnt += 1
+def get_input_data(data_dir, suffix):
+    file_list = os.listdir(data_dir)
+    data_path = ""
+    for fn in file_list:
+        if fn.endswith(suffix):
+            data_path = os.path.join(data_dir, fn)
+            return data_path
+    return data_path
 
-        self.AnswerByRNet = answer_list
-        return answer_list
+def main(_):
     
-    def getAllAnswer(self, context, question, num, answer=" "):
-        # self.getAnswerByRNet(context, question, num)
-        # self.getAnswerPhrase(context, question, num, answer)
-        # print (self.AnswerByBiDAF)
-        # print (self.AnswerByRNet)
-        print ('getAllAnswer start', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        thread_list = []    #线程存放列表
-        
-        t1 = threading.Thread(target=self.getAnswerByRNet,args=(context, question, num))
-        t1.setDaemon(True)
-        thread_list.append(t1)
-        
-        t2 = threading.Thread(target=self.getAnswerPhrase,args=(context, question, config.output_dir, config.model_dir, num))
-        t2.setDaemon(True)
-        thread_list.append(t2)
-        
-        for t in thread_list:
-            t.start()
-        for t in thread_list:
-            t.join()
-            
-        #thread1 = gevent.spawn(self.getAnswerByRNet, context, question, num)
-        #thread2 = gevent.spawn(self.getAnswerPhrase, context, question, num, answer)
-        #gevent.joinall([thread1, thread2])
-        print ('getAllAnswer end', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        return self.AnswerByBiDAF, self.AnswerByRNet
-
+    assert config.num >= 0, ("--num must >= 0")
+    assert config.input_suffix == 'tsv', ("--input_suffix must be tsv")
+    # assert config.id_index >= 0, ("--id_index must >= 0")
+    assert config.query_index >= 0, ("--query_index must >= 0")
+    assert config.context_index >= 0, ("--context_index must >= 0")
     
+    serve = ServeClass()
+    file_path = get_input_data(config.data_dir, config.input_suffix)
+    serve.getAnswerPhrase(file_path, config.output_dir, config.model_dir, config.num)
+    
+if __name__ == "__main__":
+    tf.app.run()

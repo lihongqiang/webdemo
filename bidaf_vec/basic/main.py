@@ -85,6 +85,8 @@ def _test(config):
 
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, gpu_options = tf.GPUOptions(allow_growth = True)))
     graph_handler.initialize(sess)
+    
+    # 自定义step
     num_steps = math.ceil(1.0 * test_data.num_examples / (config.batch_size * config.num_gpus)) # 2021 / 10 = 203
     
     # 这个地方可以自己设置test的num batch，就是不测试所有的batch，一般小于总大小
@@ -92,16 +94,15 @@ def _test(config):
         num_steps = config.test_num_batches
 
     
-    id2answer_dict = {}
+    total_vector = {}
     for multi_batch in tqdm(test_data.get_multi_batches(config.batch_size, config.num_gpus, num_steps=num_steps, cluster=config.cluster), total=num_steps):
-        add_id2answer_dict = evaluator.get_evaluation(sess, multi_batch)
-        if id2answer_dict:
-            new_answer_dict = dict(list(id2answer_dict.items()) + list(add_id2answer_dict.items()))
-            new_answer_dict['scores'] = dict(list(id2answer_dict['scores'].items()) + list(add_id2answer_dict['scores'].items()))
-            id2answer_dict = new_answer_dict
+        add_vector = evaluator.get_vector(sess, multi_batch)
+        if total_vector:
+            new_vector = dict(list(total_vector.items()) + list(add_vector.items()))
+            total_vector = new_vector
         else:
-            id2answer_dict = add_id2answer_dict
+            total_vector = add_vector
     
-    return id2answer_dict
+    return total_vector
 
 

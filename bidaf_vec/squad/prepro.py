@@ -291,7 +291,7 @@ def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="defa
                     # print ('answer_text:', answer_text)
                     # print ('w0:', w0)
                     # print ('w1:', w1)
-                    assert answer_text[0] == w0[cyi0], (answer_text, w0, cyi0)  # 答案的第一个字母和第一个词的第一个字母是否相同
+                    assert answer_text[0] == w0[cyi0], (answer_text, w0, cyi0)  # 答案的第一个字母和第一个词的第一个字幕是否相同
                     assert answer_text[-1] == w1[cyi1]  # 答案的最后一个字母和最后一个词的最后一个字母是否相同
                     assert cyi0 < 32, (answer_text, w0)
                     assert cyi1 < 32, (answer_text, w1)
