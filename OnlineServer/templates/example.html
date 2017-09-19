@@ -5,14 +5,14 @@
 <div class="container">
     <div class="page-header">
         <h2>Example</h2>
-        <p><a href="http://10.190.190.137:5000/example/209">(EQnA) Afghanistan girl shot in the head</a></p>
-        <p><a href="http://10.190.190.137:5000/example/210">(EQnA) American percentage of cell phone usage</a></p>
-        <p><a href="http://10.190.190.137:5000/example/211">(EQnA) Average age in united states by year</a></p>
-        <p><a href="http://10.190.190.137:5000/example/206">(SQuAD) Which NFL team represented the AFC at Super Bowl 50?</a></p>
-        <p><a href="http://10.190.190.137:5000/example/207">(SQuAD) Which Carolina Panthers player was named Most Valuable Player?</a></p>
-        <p><a href="http://10.190.190.137:5000/example/208">(SQuAD) Which network broadcasted Super Bowl 50 in the U.S.?</a></p>
-        <p><a href="http://10.190.190.137:5000/example/197">(Wiki) The Great Wall</a></p>
-        <p><a href="http://10.190.190.137:5000/example/191">(Wiki) The Soap Made Time</a></p>
+        <p><a href="http://10.190.190.137:5005/example/209">(EQnA) Afghanistan girl shot in the head</a></p>
+        <p><a href="http://10.190.190.137:5005/example/210">(EQnA) American percentage of cell phone usage</a></p>
+        <p><a href="http://10.190.190.137:5005/example/211">(EQnA) Average age in united states by year</a></p>
+        <p><a href="http://10.190.190.137:5005/example/206">(SQuAD) Which NFL team represented the AFC at Super Bowl 50?</a></p>
+        <p><a href="http://10.190.190.137:5005/example/207">(SQuAD) Which Carolina Panthers player was named Most Valuable Player?</a></p>
+        <p><a href="http://10.190.190.137:5005/example/208">(SQuAD) Which network broadcasted Super Bowl 50 in the U.S.?</a></p>
+        <p><a href="http://10.190.190.137:5005/example/197">(Wiki) The Great Wall</a></p>
+        <p><a href="http://10.190.190.137:5005/example/191">(Wiki) The Soap Made Time</a></p>
     </div>
 </div>
 
@@ -63,6 +63,9 @@
     <tr>
       <th>#</th>
       <th>BiDAF</th>
+      {% if softmax %}
+        <th>Softmax</th>
+      {% endif %}
       <th>RNet</th>
       {% if prod %}
         <th>Prod</th>
@@ -73,8 +76,11 @@
           {% for phrase in answer %}
           <tr>
               <td>{{ phrase.cnt }}</td> 
-              <td><span>{{ phrase.bidaf.split(':::')[0]}}</span>
-                  :<span style=" color:#00F">{{ phrase.bidaf.split(':::')[1]}}</span></td>
+              <td><span>{{ phrase.bidaf.split(':::')[0]}}</span>:
+              <span style=" color:#00F">{{ phrase.bidaf.split(':::')[1]}}</span></td>
+              {% if softmax %}
+                <td><span style=" color:#F00">{{ phrase.bidaf.split(':::')[2]}}</span></td>
+              {% endif %}
               <td><span>{{ phrase.rnet.split(':::')[0]}}</span>
                   :<span style=" color:#00F">{{ phrase.rnet.split(':::')[1]}}</span></td>
                {% if prod %}

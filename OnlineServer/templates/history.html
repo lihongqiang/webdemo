@@ -15,7 +15,7 @@
     $(document).ready(function() {
         $('#table').dataTable().fnDestroy();
         table = $('#table').DataTable({
-            "ajax": "http://10.190.190.137:5000/history_data",
+            "ajax": "http://10.190.190.137:5005/history_data",
             "columns": [
                 { "data": 'datetime'},
                 { "data": 'context'},
@@ -30,7 +30,7 @@
             var obj = table.row(this).data();
             var strJSON = JSON.stringify(obj);
             var data = eval( "(" + strJSON + ")" );
-            self.location="http://10.190.190.137:5000/example/"+data.id; 
+            self.location="http://10.190.190.137:5005/example/"+data.id; 
         });
       });
     
@@ -50,11 +50,11 @@
         <thead>
             <tr>
                 <th>DateTime</th>
-                <th>Context</th>
-                <th>Question</th>
-                      <th>Num</th>
-                <th>BiDAF</th>
-                <th>RNet</th>
+                <th>Context</th>
+                <th>Question</th>
+                <th>Num</th>
+                <th>BiDAF</th>
+                <th>RNet</th>
             </tr>
         </thead>
     </table>

@@ -124,17 +124,21 @@
     <tr>
       <th>#</th>
       <th>BiDAF</th>
+      <th>Probability</th>
+      <th>Softmax</th>
       <th>RNet</th>
+      <th>Probability</th>
     </tr>
     </thead>
     {% if answer %}
           {% for phrase in answer %}
           <tr>
               <td>{{ phrase.cnt }}</td> 
-              <td><span>{{ phrase.bidaf.split(':::')[0]}}</span>
-                  :<span style=" color:#00F">{{ phrase.bidaf.split(':::')[1]}}</span></td>
-              <td><span>{{ phrase.rnet.split(':::')[0]}}</span>
-                  :<span style=" color:#00F">{{ phrase.rnet.split(':::')[1]}}</span></td>
+              <td><span>{{ phrase.bidaf.split(':::')[0]}}</span></td>
+              <td><span style=" color:#00F">{{ phrase.bidaf.split(':::')[1]}}</span></td>
+              <td><span style=" color:#F00">{{ phrase.bidaf.split(':::')[2]}}</span></td>
+              <td><span>{{ phrase.rnet.split(':::')[0]}}</span></td>
+              <td><span style=" color:#00F">{{ phrase.rnet.split(':::')[1]}}</span></td>
           </tr>
           {% endfor %}
     {% else %}

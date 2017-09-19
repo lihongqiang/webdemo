@@ -134,7 +134,8 @@ flags.DEFINE_string("output_dir", 'data/output/', "output file path")
 flags.DEFINE_integer("num", 1, "answer number")
 flags.DEFINE_string("input_suffix", "tsv", "Filename suffix of data.")
 
-# trans to data json
+flags.DEFINE_bool("fraction", False, "Softmax the left answer score when getting multi answer [False]")
+
 import pandas as pd
 import hashlib
 import json
@@ -224,7 +225,13 @@ class ServeClass():
 
     def testData(self, num, data, shared, output_dir, model_dir):
         
-        return self.bidaf.main(config, num, data, shared, output_dir, model_dir)
+        config.fraction = True
+        ans_fraction = self.bidaf.main(config, num, data, shared, output_dir, model_dir)
+        
+        config.fraction = False
+        ans_prob = self.bidaf.main(config, num, data, shared, output_dir, model_dir)
+        
+        return ans_fraction, ans_prob
         
         # test data  python -m basic.cli --len_opt --cluster --data_dir=data/online --online=True
         #file_name = file_path.split('/')[-1]
@@ -237,16 +244,17 @@ class ServeClass():
         
     
     # show answer
-    def showAnswer(self, answer):
+    def showAnswer(self, ans_fraction, ans_prob):
         answer_list = []
-        for key,val in list(answer.items()):
+        for key,val in list(ans_prob.items()):
             if key != 'scores':
                 phrases = val.split('|||')
-                scores = answer['scores'][key].split('|||')
+                scores = ans_prob['scores'][key].split('|||')
+                scores_fraction = ans_fraction['scores'][key].split('|||')
                 cnt = 1
-                for phrase, score in zip(phrases, scores):
+                for phrase, score, score_fraction in zip(phrases, scores, scores_fraction):
                     # print (cnt, phrase, score)
-                    answer_list.append([cnt, phrase, score])
+                    answer_list.append([cnt, phrase, score, score_fraction])
                     cnt += 1
         return answer_list
       
@@ -263,14 +271,14 @@ class ServeClass():
 
         # 12s run the model in GPU
         print ('tets data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
-        id2answer_dict = self.testData(num, data, shared, output_dir, model_dir)
-        print (id2answer_dict)
+        ans_fraction, ans_prob = self.testData(num, data, shared, output_dir, model_dir)
+        # print (id2answer_dict)
         #self.testDataOline(num, file_path)
 
         # <1s
         #print ('show data', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
         
-        ans = self.showAnswer(id2answer_dict)
+        ans = self.showAnswer(ans_fraction, ans_prob)
         print ('finish ', time.strftime( ISOTIMEFORMAT, time.localtime( time.time() )))
         
         self.AnswerByBiDAF = ans
@@ -283,7 +291,8 @@ class ServeClass():
             "num":num
         }
         try:
-            r = requests.post("http://10.172.126.49:5000/demo", data=payload, timeout=50)
+            #r = requests.post("http://10.172.126.49:5000/demo", data=payload, timeout=50)
+            r = requests.post("http://10.190.176.163:5000/demo", data=payload, timeout=20)
         except:
             print ('rnet network error.')
             answer_list = []

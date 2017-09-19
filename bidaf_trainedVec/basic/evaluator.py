@@ -246,6 +246,9 @@ class F1Evaluator(LabeledEvaluator):
         self.yp2 = model.yp2
         self.wyp = model.wyp
         self.loss = model.loss
+        self.p0 = model.tensor_dict['p0']
+        self.u = model.tensor_dict['u']
+        self.h = model.tensor_dict['h']
         if config.na:
             self.na = model.na_prob
 
@@ -257,29 +260,6 @@ class F1Evaluator(LabeledEvaluator):
             global_step, yp, yp2, wyp, loss, na, vals = sess.run([self.global_step, self.yp, self.yp2, self.wyp, self.loss, self.na, list(self.tensor_dict.values())], feed_dict=feed_dict)
         else:
             global_step, yp, yp2, wyp, loss, vals = sess.run([self.global_step, self.yp, self.yp2, self.wyp, self.loss, list(self.tensor_dict.values())], feed_dict=feed_dict)
-        y = data_set.data['y']
-        if self.config.squash:  # False default      将(sent_id, token_id) 转换成(0, token_id_total)
-            new_y = []
-            for xi, yi in zip(data_set.data['x'], y):
-                new_yi = []
-                for start, stop in yi:
-                    start_offset = sum(map(len, xi[:start[0]]))
-                    stop_offset = sum(map(len, xi[:stop[0]]))
-                    new_start = 0, start_offset + start[1]
-                    new_stop = 0, stop_offset + stop[1]
-                    new_yi.append((new_start, new_stop))
-                new_y.append(new_yi)
-            y = new_y
-        if self.config.single:  # False default     将(sent_id, toekn_id) 转换成(0, token_id)
-            new_y = []
-            for yi in y:
-                new_yi = []
-                for start, stop in yi:
-                    new_start = 0, start[1]
-                    new_stop = 0, stop[1]
-                    new_yi.append((new_start, new_stop))
-                new_y.append(new_yi)
-            y = new_y
 
         yp, yp2, wyp = yp[:data_set.num_examples], yp2[:data_set.num_examples], wyp[:data_set.num_examples]
         if self.config.wy:
@@ -289,11 +269,7 @@ class F1Evaluator(LabeledEvaluator):
             if self.config.topk == 0:
                 spans, scores = zip(*[get_best_span(ypi, yp2i) for ypi, yp2i in zip(yp, yp2)])
             else:
-                # spans, scores = zip(*[get_best_span_topk_nocover(ypi, yp2i, self.config.topk) for ypi, yp2i in zip(yp, yp2)])
-                if self.config.fraction:
-                    spans, scores = zip(*[get_best_span_topk_nocover_fraction(ypi, yp2i, self.config.topk) for ypi, yp2i in zip(yp, yp2)])
-                else:
-                    spans, scores = zip(*[get_best_span_topk_nocover(ypi, yp2i, self.config.topk) for ypi, yp2i in zip(yp, yp2)])
+                spans, scores = zip(*[get_best_span_topk_nocover(ypi, yp2i, self.config.topk) for ypi, yp2i in zip(yp, yp2)])
 
         def _get(xi, span):
             if len(xi) <= span[0][0]:
@@ -336,20 +312,37 @@ class F1Evaluator(LabeledEvaluator):
             id2na_dict = {id_: float(each) for id_, each in zip(data_set.data['ids'], na)}
             id2answer_dict['na'] = id2na_dict
         
-        # choose topk answer
-        if self.config.topk == 0:
-            correct = [self.__class__.compare2(yi, span) for yi, span in zip(y, spans)]
-            f1s = [self.__class__.span_f1(yi, span) for yi, span in zip(y, spans)]
-        else:
-            correct = [self.__class__.compare2(yi, span[0]) for yi, span in zip(y, spans)]
-            f1s = [self.__class__.span_f1(yi, span[0]) for yi, span in zip(y, spans)]
         
-        tensor_dict = dict(zip(self.tensor_dict.keys(), vals))
-        e = F1Evaluation(data_set.data_type, int(global_step), idxs, yp.tolist(), yp2.tolist(), y,
-                         correct, float(loss), f1s, id2answer_dict, tensor_dict=tensor_dict) # 这里计算出所有的指标如f1, loss, acc，并调用add summary
-        if self.config.wy:
-            e.dict['wyp'] = wyp.tolist()
-        return e
+        return id2answer_dict
+    
+    def get_vector(self, sess, batch):
+        idxs, data_set = self._split_batch(batch)
+        assert isinstance(data_set, DataSet)
+        feed_dict = self._get_feed_dict(batch)
+        if self.config.na:
+            global_step, p0, u, h, na = sess.run([self.global_step, self.p0, self.u, self.h, self.na], feed_dict=feed_dict)
+        else:
+            global_step, p0, u, h = sess.run([self.global_step, self.p0, self.u, self.h], feed_dict=feed_dict)
+            
+                                    #    M=1
+        p0 = np.array(p0[:data_set.num_examples]) # [N, M, JX, 8d] fw bw
+        u = np.array(u[:data_set.num_examples]) # [N, JX, 2d] fw bw
+        h = np.array(h[:data_set.num_examples]) # [N, M, JX, 2d] fw bw
+        print (p0.shape, u.shape, h.shape)
+        
+        hd = h.shape[-1]//2
+        ud = u.shape[-1]//2
+        p0d = p0.shape[-1]//8
+        
+        h = np.array([np.concatenate([m[0][0][hd:], m[0][-1][:hd]]) for m in h])
+        u = np.array([np.concatenate([m[0][ud:], m[-1][:ud]]) for m in u])
+        p0 = np.array([np.concatenate([m[0][0][p0d:2*p0d], m[0][0][3*p0d:4*p0d], m[0][0][5*p0d:6*p0d], m[0][0][7*p0d:8*p0d],
+                            m[0][-1][0:p0d], m[0][-1][2*p0d:3*p0d], m[0][-1][4*p0d:5*p0d], m[0][-1][6*p0d:7*p0d]]) for m in p0]) 
+        
+        print (p0.shape, u.shape, h.shape)
+        
+        id2vec = {vec[0]: vec[1:] for vec in zip(data_set.data['ids'], h, u, p0)}
+        return id2vec
 
     def _split_batch(self, batch):
         return batch
@@ -451,10 +444,8 @@ class ForwardEvaluator(Evaluator):
         if self.config.na:
             id2na_dict = {id_: float(each) for id_, each in zip(data_set.data['ids'], na)}
             id2answer_dict['na'] = id2na_dict
-        tensor_dict = dict(zip(self.tensor_dict.keys(), vals))
-        e = ForwardEvaluation(data_set.data_type, int(global_step), idxs, yp.tolist(), yp2.tolist(), float(loss), id2answer_dict, tensor_dict=tensor_dict)
         # TODO : wy support
-        return e
+        return id2answer_dict
 
     @staticmethod
     def compare(yi, ypi, yp2i):

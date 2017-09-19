@@ -24,15 +24,17 @@ class Submit(Base):
     context = Column(String(255))
     question = Column(String(255))
     bidaf = Column(String(255))
+    bidaf_softmax = Column(String(255))
     rnet = Column(String(255))
     num = Column(Integer())
     date = Column(DateTime())
     prod = Column(String(255))
 
-    def __init__(self, context, question, bidaf, rnet, num):
+    def __init__(self, context, question, bidaf, bidaf_softmax, rnet, num):
         self.context = context
         self.question = question
         self.bidaf = bidaf
+        self.bidaf_softmax = bidaf_softmax
         self.rnet = rnet
         self.num = num
         self.date = datetime.datetime.now()
